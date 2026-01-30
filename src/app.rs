@@ -23,6 +23,10 @@ pub struct OligoscreenApp {
     thread_selection: ThreadSelection,
     manual_thread_count: usize,
 
+    // Incremental method options
+    incremental_limit_ambiguities: bool,
+    incremental_max_ambiguities: u32,
+
     // Analysis state
     is_analyzing: bool,
     analysis_progress: Option<ProgressUpdate>,
@@ -91,6 +95,8 @@ impl Default for OligoscreenApp {
             method_selection: MethodSelection::NoAmbiguities,
             thread_selection: ThreadSelection::Auto,
             manual_thread_count: available_threads,
+            incremental_limit_ambiguities: false,
+            incremental_max_ambiguities: 3,
             is_analyzing: false,
             analysis_progress: None,
             progress_rx: None,
@@ -151,7 +157,12 @@ impl OligoscreenApp {
                 AnalysisMethod::FixedAmbiguities(self.params.method.get_fixed_ambiguities())
             }
             MethodSelection::Incremental => {
-                AnalysisMethod::Incremental(self.params.method.get_incremental_pct())
+                let max_amb = if self.incremental_limit_ambiguities {
+                    Some(self.incremental_max_ambiguities)
+                } else {
+                    None
+                };
+                AnalysisMethod::Incremental(self.params.method.get_incremental_pct(), max_amb)
             }
         };
 
@@ -277,8 +288,15 @@ impl AnalysisMethod {
 
     fn get_incremental_pct(&self) -> u32 {
         match self {
-            AnalysisMethod::Incremental(n) => *n,
+            AnalysisMethod::Incremental(pct, _) => *pct,
             _ => 50,
+        }
+    }
+
+    fn get_incremental_max_amb(&self) -> Option<u32> {
+        match self {
+            AnalysisMethod::Incremental(_, max_amb) => *max_amb,
+            _ => None,
         }
     }
 }
@@ -512,10 +530,26 @@ impl OligoscreenApp {
                         ui.add_space(20.0);
                         ui.label("Target coverage per step (%):");
                         let mut pct = self.params.method.get_incremental_pct();
+                        let max_amb = self.params.method.get_incremental_max_amb();
                         if ui.add(egui::DragValue::new(&mut pct).range(1..=100)).changed() {
-                            self.params.method = AnalysisMethod::Incremental(pct);
+                            self.params.method = AnalysisMethod::Incremental(pct, max_amb);
                         }
                     });
+                    ui.horizontal(|ui| {
+                        ui.add_space(20.0);
+                        ui.checkbox(&mut self.incremental_limit_ambiguities, "Limit ambiguities:");
+                        ui.add_enabled(
+                            self.incremental_limit_ambiguities,
+                            egui::DragValue::new(&mut self.incremental_max_ambiguities).range(0..=20),
+                        );
+                        ui.label("max");
+                    });
+                    if self.incremental_limit_ambiguities {
+                        ui.horizontal(|ui| {
+                            ui.add_space(20.0);
+                            ui.label("If target % cannot be reached, accepts best variant within limit.");
+                        });
+                    }
                 }
             });
 

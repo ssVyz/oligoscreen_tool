@@ -26,8 +26,13 @@ pub fn analyze_sequences(
         AnalysisMethod::FixedAmbiguities(max_amb) => {
             find_minimum_variants_greedy(sequences, *max_amb as usize, exclude_n)
         }
-        AnalysisMethod::Incremental(target_pct) => {
-            find_incremental_variants(sequences, *target_pct as f64, exclude_n)
+        AnalysisMethod::Incremental(target_pct, max_amb) => {
+            find_incremental_variants(
+                sequences,
+                *target_pct as f64,
+                exclude_n,
+                max_amb.map(|n| n as usize),
+            )
         }
     };
 
@@ -202,6 +207,7 @@ fn find_incremental_variants(
     sequences: &[&str],
     target_percentage: f64,
     exclude_n: bool,
+    max_ambiguities: Option<usize>,
 ) -> Vec<Variant> {
     if sequences.is_empty() {
         return Vec::new();
@@ -228,6 +234,7 @@ fn find_incremental_variants(
             &remaining_counts,
             target_count,
             exclude_n,
+            max_ambiguities,
         );
 
         let percentage = (best_coverage_count as f64 / total_original) * 100.0;
@@ -250,6 +257,7 @@ fn find_incremental_consensus(
     remaining_counts: &HashMap<&str, usize>,
     target_count: usize,
     exclude_n: bool,
+    max_ambiguities: Option<usize>,
 ) -> (String, usize) {
     if unique_remaining.is_empty() {
         return (String::new(), 0);
@@ -260,8 +268,11 @@ fn find_incremental_consensus(
     let mut best_coverage_count = 0usize;
     let mut found_target = false;
 
-    // Try increasing ambiguity levels
-    for amb_level in 0..=seq_len {
+    // Determine the maximum ambiguity level to try
+    let max_amb_level = max_ambiguities.unwrap_or(seq_len);
+
+    // Try increasing ambiguity levels up to the limit
+    for amb_level in 0..=max_amb_level {
         if found_target {
             break;
         }
@@ -315,6 +326,9 @@ fn find_incremental_consensus(
             }
         }
     }
+
+    // If we have a max ambiguity limit and couldn't reach target, accept best within limit
+    // (This is already handled above - best_coverage_count tracks the best we found)
 
     // Fallback
     if best_consensus.is_empty() && !unique_remaining.is_empty() {

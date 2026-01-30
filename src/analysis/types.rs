@@ -26,7 +26,8 @@ pub enum AnalysisMethod {
     /// Find minimum variants using up to N ambiguity codes per variant
     FixedAmbiguities(u32),
     /// Incremental: find variants covering X% of remaining sequences each step
-    Incremental(u32), // percentage as integer (1-100)
+    /// Parameters: (target_percentage, optional_max_ambiguities)
+    Incremental(u32, Option<u32>),
 }
 
 impl Default for AnalysisMethod {
@@ -40,7 +41,7 @@ impl AnalysisMethod {
         match self {
             Self::NoAmbiguities => "No Ambiguities (exact variants only)".to_string(),
             Self::FixedAmbiguities(n) => format!("Fixed Ambiguities (max {} per variant)", n),
-            Self::Incremental(pct) => format!("Incremental ({}% coverage per step)", pct),
+            Self::Incremental(pct, _) => format!("Incremental ({}% coverage per step)", pct),
         }
     }
 }

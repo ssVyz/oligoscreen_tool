@@ -62,7 +62,7 @@ cargo run --release
 
 **Fixed Ambiguities**: Uses greedy set cover to find minimum variants, allowing up to N IUPAC ambiguity codes per variant.
 
-**Incremental**: Iteratively builds consensus sequences, each covering a percentage of remaining sequences until threshold is reached.
+**Incremental**: Iteratively builds consensus sequences, each covering a percentage of remaining sequences until threshold is reached. Optional "Limit ambiguities" setting caps the maximum ambiguities per variant; if the target percentage cannot be reached within the limit, accepts the best variant within the constraint and continues.
 
 ### Window Filtering
 
