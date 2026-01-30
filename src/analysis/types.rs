@@ -30,6 +30,33 @@ impl AnalysisMethod {
     }
 }
 
+/// Thread count configuration
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ThreadCount {
+    /// Use all available CPU cores
+    Auto,
+    /// Use a specific number of threads
+    Fixed(usize),
+}
+
+impl Default for ThreadCount {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+impl ThreadCount {
+    /// Get the actual number of threads to use
+    pub fn get_count(&self) -> usize {
+        match self {
+            Self::Auto => std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1),
+            Self::Fixed(n) => *n,
+        }
+    }
+}
+
 /// Global analysis parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalysisParams {
@@ -39,6 +66,7 @@ pub struct AnalysisParams {
     pub max_oligo_length: u32,
     pub resolution: u32,
     pub coverage_threshold: f64,
+    pub thread_count: ThreadCount,
 }
 
 impl Default for AnalysisParams {
@@ -50,6 +78,7 @@ impl Default for AnalysisParams {
             max_oligo_length: 25,
             resolution: 1,
             coverage_threshold: 95.0,
+            thread_count: ThreadCount::Auto,
         }
     }
 }

@@ -11,7 +11,10 @@ use super::types::{
     AnalysisParams, LengthResult, PositionResult, ProgressUpdate, ScreeningResults,
     WindowAnalysisResult,
 };
+use rayon::prelude::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
+use std::sync::Arc;
 
 /// Maximum percentage of sequences with gaps/ambiguities before skipping window
 const MAX_EXCLUDED_PERCENTAGE: f64 = 20.0;
@@ -22,6 +25,18 @@ pub fn run_screening(
     params: &AnalysisParams,
     progress_tx: Option<Sender<ProgressUpdate>>,
 ) -> ScreeningResults {
+    // Configure rayon thread pool based on user settings
+    let num_threads = params.thread_count.get_count();
+
+    // Build a custom thread pool for this analysis
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build()
+        .unwrap_or_else(|_| {
+            // Fallback to default pool if custom pool fails
+            rayon::ThreadPoolBuilder::new().build().unwrap()
+        });
+
     let consensus = compute_consensus(data);
     let mut results = ScreeningResults::new(
         params.clone(),
@@ -33,14 +48,16 @@ pub fn run_screening(
     let total_lengths = params.max_oligo_length - params.min_oligo_length + 1;
 
     for (length_idx, oligo_length) in (params.min_oligo_length..=params.max_oligo_length).enumerate() {
-        let length_result = analyze_length(
-            data,
-            params,
-            oligo_length,
-            length_idx as u32,
-            total_lengths,
-            &progress_tx,
-        );
+        let length_result = pool.install(|| {
+            analyze_length(
+                data,
+                params,
+                oligo_length,
+                length_idx as u32,
+                total_lengths,
+                &progress_tx,
+            )
+        });
 
         results.results_by_length.insert(oligo_length, length_result);
     }
@@ -79,35 +96,49 @@ fn analyze_length(
         }
     }
 
-    let mut position_results = Vec::with_capacity(total_positions);
+    // Progress counter for parallel execution
+    let completed_count = Arc::new(AtomicUsize::new(0));
 
-    for (pos_idx, &position) in positions.iter().enumerate() {
-        // Send progress update
-        if let Some(tx) = progress_tx {
-            let _ = tx.send(ProgressUpdate {
-                current_length: oligo_length,
-                current_position: position,
-                total_positions,
-                lengths_completed: length_idx,
-                total_lengths,
-                message: format!(
-                    "Length {}/{}: Position {}/{}",
-                    length_idx + 1,
-                    total_lengths,
-                    pos_idx + 1,
-                    total_positions
-                ),
-            });
-        }
+    // Process positions in parallel
+    let mut position_results: Vec<PositionResult> = positions
+        .par_iter()
+        .map(|&position| {
+            let analysis = analyze_window(data, params, position, length);
 
-        let analysis = analyze_window(data, params, position, length);
+            // Update progress (atomic increment)
+            let completed = completed_count.fetch_add(1, Ordering::Relaxed) + 1;
 
-        position_results.push(PositionResult {
-            position,
-            variants_needed: analysis.variants_for_threshold,
-            analysis,
-        });
-    }
+            // Send progress update (best effort, non-blocking)
+            if let Some(tx) = progress_tx {
+                // Only send periodic updates to avoid flooding the channel
+                if completed % 10 == 0 || completed == total_positions {
+                    let _ = tx.send(ProgressUpdate {
+                        current_length: oligo_length,
+                        current_position: position,
+                        total_positions,
+                        lengths_completed: length_idx,
+                        total_lengths,
+                        message: format!(
+                            "Length {}/{}: Position {}/{}",
+                            length_idx + 1,
+                            total_lengths,
+                            completed,
+                            total_positions
+                        ),
+                    });
+                }
+            }
+
+            PositionResult {
+                position,
+                variants_needed: analysis.variants_for_threshold,
+                analysis,
+            }
+        })
+        .collect();
+
+    // Sort results by position (parallel processing may return them out of order)
+    position_results.sort_by_key(|r| r.position);
 
     LengthResult {
         oligo_length,

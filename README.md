@@ -45,6 +45,7 @@ cargo run --release
 | Resolution | Bases between analysis windows |
 | Coverage threshold | Target percentage of sequences to cover (1-100%) |
 | Analysis method | No Ambiguities, Fixed Ambiguities, or Incremental |
+| Threads | Auto (all cores) or manual selection (1-N) |
 
 ## How It Works
 

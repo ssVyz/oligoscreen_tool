@@ -6,7 +6,7 @@ use std::thread;
 
 use crate::analysis::{
     parse_fasta, run_screening, AlignmentData, AnalysisMethod, AnalysisParams,
-    LengthResult, ProgressUpdate, ScreeningResults,
+    LengthResult, ProgressUpdate, ScreeningResults, ThreadCount,
 };
 
 /// Application state
@@ -19,6 +19,8 @@ pub struct OligoScreenApp {
     // Analysis parameters
     params: AnalysisParams,
     method_selection: MethodSelection,
+    thread_selection: ThreadSelection,
+    manual_thread_count: usize,
 
     // Analysis state
     is_analyzing: bool,
@@ -58,14 +60,25 @@ enum MethodSelection {
     Incremental,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ThreadSelection {
+    Auto,
+    Manual,
+}
+
 impl Default for OligoScreenApp {
     fn default() -> Self {
+        let available_threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
         Self {
             fasta_input: String::new(),
             alignment_data: None,
             input_error: None,
             params: AnalysisParams::default(),
             method_selection: MethodSelection::NoAmbiguities,
+            thread_selection: ThreadSelection::Auto,
+            manual_thread_count: available_threads,
             is_analyzing: false,
             analysis_progress: None,
             progress_rx: None,
@@ -120,6 +133,12 @@ impl OligoScreenApp {
             MethodSelection::Incremental => {
                 AnalysisMethod::Incremental(self.params.method.get_incremental_pct())
             }
+        };
+
+        // Update thread count from selection
+        self.params.thread_count = match self.thread_selection {
+            ThreadSelection::Auto => ThreadCount::Auto,
+            ThreadSelection::Manual => ThreadCount::Fixed(self.manual_thread_count),
         };
 
         let data_clone = data.clone();
@@ -512,6 +531,42 @@ impl OligoScreenApp {
                     ui.add(egui::DragValue::new(&mut self.params.coverage_threshold).range(1.0..=100.0));
                 });
                 ui.label("Number of variants needed to reach this coverage will be reported");
+            });
+
+            ui.add_space(10.0);
+
+            // Thread count
+            ui.group(|ui| {
+                ui.heading("Parallelization");
+
+                let available_threads = std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(1);
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.thread_selection,
+                        ThreadSelection::Auto,
+                        format!("Auto ({} threads)", available_threads),
+                    );
+                });
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.thread_selection,
+                        ThreadSelection::Manual,
+                        "Manual:",
+                    );
+                    let enabled = self.thread_selection == ThreadSelection::Manual;
+                    ui.add_enabled(
+                        enabled,
+                        egui::DragValue::new(&mut self.manual_thread_count)
+                            .range(1..=available_threads.max(32)),
+                    );
+                    ui.label("threads");
+                });
+
+                ui.label("More threads = faster analysis but higher CPU usage");
             });
 
             ui.add_space(20.0);
