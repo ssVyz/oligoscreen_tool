@@ -3,6 +3,21 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Analysis mode selection
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AnalysisMode {
+    /// Screen entire alignment with sliding windows
+    ScreenAlignment,
+    /// Analyze a single oligo region (alignment is one oligo)
+    SingleOligoRegion,
+}
+
+impl Default for AnalysisMode {
+    fn default() -> Self {
+        Self::ScreenAlignment
+    }
+}
+
 /// Analysis method selection
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AnalysisMethod {
@@ -60,6 +75,7 @@ impl ThreadCount {
 /// Global analysis parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalysisParams {
+    pub mode: AnalysisMode,
     pub method: AnalysisMethod,
     pub exclude_n: bool,
     pub min_oligo_length: u32,
@@ -72,6 +88,7 @@ pub struct AnalysisParams {
 impl Default for AnalysisParams {
     fn default() -> Self {
         Self {
+            mode: AnalysisMode::ScreenAlignment,
             method: AnalysisMethod::NoAmbiguities,
             exclude_n: false,
             min_oligo_length: 18,

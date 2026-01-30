@@ -41,6 +41,7 @@ cargo run --release
 
 | Parameter | Description |
 |-----------|-------------|
+| Analysis mode | Screen Alignment (sliding windows) or Single Oligo Region |
 | Oligo length | Range of primer lengths to analyze (3-100 bp) |
 | Resolution | Bases between analysis windows |
 | Coverage threshold | Target percentage of sequences to cover (1-100%) |
@@ -48,6 +49,12 @@ cargo run --release
 | Threads | Auto (all cores) or manual selection (1-N) |
 
 ## How It Works
+
+### Analysis Modes
+
+**Screen Alignment**: Default mode. Scans the alignment using sliding windows of specified lengths, analyzing variability at each position.
+
+**Single Oligo Region**: For pre-aligned single oligo regions. Treats the entire alignment as one analysis window. Sequences containing gaps or ambiguous bases are excluded from analysis.
 
 ### Analysis Methods
 

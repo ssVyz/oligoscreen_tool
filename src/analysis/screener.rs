@@ -8,8 +8,8 @@ use super::fasta::{
     compute_consensus, extract_window, filter_window_sequences, AlignmentData,
 };
 use super::types::{
-    AnalysisParams, LengthResult, PositionResult, ProgressUpdate, ScreeningResults,
-    WindowAnalysisResult,
+    AnalysisMode, AnalysisParams, LengthResult, PositionResult, ProgressUpdate,
+    ScreeningResults, WindowAnalysisResult,
 };
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -21,6 +21,18 @@ const MAX_EXCLUDED_PERCENTAGE: f64 = 20.0;
 
 /// Run the complete screening analysis
 pub fn run_screening(
+    data: &AlignmentData,
+    params: &AnalysisParams,
+    progress_tx: Option<Sender<ProgressUpdate>>,
+) -> ScreeningResults {
+    match params.mode {
+        AnalysisMode::ScreenAlignment => run_screen_alignment(data, params, progress_tx),
+        AnalysisMode::SingleOligoRegion => run_single_oligo_analysis(data, params, progress_tx),
+    }
+}
+
+/// Run screen alignment mode (sliding window analysis)
+fn run_screen_alignment(
     data: &AlignmentData,
     params: &AnalysisParams,
     progress_tx: Option<Sender<ProgressUpdate>>,
@@ -63,6 +75,105 @@ pub fn run_screening(
     }
 
     results
+}
+
+/// Run single oligo region analysis (entire alignment is one oligo)
+fn run_single_oligo_analysis(
+    data: &AlignmentData,
+    params: &AnalysisParams,
+    progress_tx: Option<Sender<ProgressUpdate>>,
+) -> ScreeningResults {
+    let consensus = compute_consensus(data);
+    let oligo_length = data.alignment_length as u32;
+
+    let mut results = ScreeningResults::new(
+        params.clone(),
+        data.alignment_length,
+        data.len(),
+        consensus.clone(),
+    );
+
+    // Send progress update
+    if let Some(ref tx) = progress_tx {
+        let _ = tx.send(ProgressUpdate {
+            current_length: oligo_length,
+            current_position: 0,
+            total_positions: 1,
+            lengths_completed: 0,
+            total_lengths: 1,
+            message: "Analyzing single oligo region...".to_string(),
+        });
+    }
+
+    // Filter sequences: drop any with gaps or ambiguous bases
+    let filtered_sequences: Vec<&str> = data
+        .sequences
+        .iter()
+        .map(|s| s.as_str())
+        .filter(|seq| !has_gaps_or_ambiguities(seq))
+        .collect();
+
+    let total_sequences = data.len();
+    let sequences_analyzed = filtered_sequences.len();
+
+    // Run analysis on filtered sequences
+    let analysis = if filtered_sequences.is_empty() {
+        WindowAnalysisResult {
+            skipped: true,
+            skip_reason: Some("No valid sequences after filtering gaps/ambiguities".to_string()),
+            total_sequences,
+            sequences_analyzed: 0,
+            ..Default::default()
+        }
+    } else {
+        let mut result = analyze_sequences(
+            &filtered_sequences,
+            &params.method,
+            params.exclude_n,
+            params.coverage_threshold,
+        );
+        result.total_sequences = total_sequences;
+        result.sequences_analyzed = sequences_analyzed;
+        result
+    };
+
+    // Create length result with single position
+    let length_result = LengthResult {
+        oligo_length,
+        positions: vec![PositionResult {
+            position: 0,
+            variants_needed: analysis.variants_for_threshold,
+            analysis,
+        }],
+        consensus_sequence: consensus,
+    };
+
+    results.results_by_length.insert(oligo_length, length_result);
+
+    // Send completion progress
+    if let Some(ref tx) = progress_tx {
+        let _ = tx.send(ProgressUpdate {
+            current_length: oligo_length,
+            current_position: 0,
+            total_positions: 1,
+            lengths_completed: 1,
+            total_lengths: 1,
+            message: "Analysis complete".to_string(),
+        });
+    }
+
+    results
+}
+
+/// Check if a sequence contains gaps or ambiguous bases
+fn has_gaps_or_ambiguities(seq: &str) -> bool {
+    seq.chars().any(|c| {
+        let upper = c.to_ascii_uppercase();
+        // Gap characters
+        upper == '-' || upper == '.'
+        // Ambiguous bases (anything that's not A, C, G, T)
+        || (upper != 'A' && upper != 'C' && upper != 'G' && upper != 'T')
+    })
 }
 
 /// Analyze all positions for a specific oligo length

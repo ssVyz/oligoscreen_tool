@@ -5,7 +5,7 @@ use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 
 use crate::analysis::{
-    parse_fasta, run_screening, AlignmentData, AnalysisMethod, AnalysisParams,
+    parse_fasta, run_screening, AlignmentData, AnalysisMethod, AnalysisMode, AnalysisParams,
     LengthResult, ProgressUpdate, ScreeningResults, ThreadCount,
 };
 
@@ -18,6 +18,7 @@ pub struct OligoScreenApp {
 
     // Analysis parameters
     params: AnalysisParams,
+    mode_selection: ModeSelection,
     method_selection: MethodSelection,
     thread_selection: ThreadSelection,
     manual_thread_count: usize,
@@ -66,6 +67,12 @@ enum ThreadSelection {
     Manual,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModeSelection {
+    ScreenAlignment,
+    SingleOligoRegion,
+}
+
 impl Default for OligoScreenApp {
     fn default() -> Self {
         let available_threads = std::thread::available_parallelism()
@@ -76,6 +83,7 @@ impl Default for OligoScreenApp {
             alignment_data: None,
             input_error: None,
             params: AnalysisParams::default(),
+            mode_selection: ModeSelection::ScreenAlignment,
             method_selection: MethodSelection::NoAmbiguities,
             thread_selection: ThreadSelection::Auto,
             manual_thread_count: available_threads,
@@ -122,6 +130,12 @@ impl OligoScreenApp {
     fn start_analysis(&mut self) {
         let Some(data) = &self.alignment_data else {
             return;
+        };
+
+        // Update mode from selection
+        self.params.mode = match self.mode_selection {
+            ModeSelection::ScreenAlignment => AnalysisMode::ScreenAlignment,
+            ModeSelection::SingleOligoRegion => AnalysisMode::SingleOligoRegion,
         };
 
         // Update method from selection
@@ -424,7 +438,32 @@ impl OligoScreenApp {
             return;
         }
 
+        let is_single_oligo_mode = self.mode_selection == ModeSelection::SingleOligoRegion;
+
         egui::ScrollArea::vertical().show(ui, |ui| {
+            // Analysis mode selection (at the top)
+            ui.group(|ui| {
+                ui.heading("Analysis Mode");
+
+                ui.radio_value(
+                    &mut self.mode_selection,
+                    ModeSelection::ScreenAlignment,
+                    "Screen Alignment - Scan alignment with sliding windows",
+                );
+
+                ui.radio_value(
+                    &mut self.mode_selection,
+                    ModeSelection::SingleOligoRegion,
+                    "Single Oligo Region - Analyze entire alignment as one oligo",
+                );
+
+                if is_single_oligo_mode {
+                    ui.label("Sequences with gaps or ambiguities will be excluded from analysis.");
+                }
+            });
+
+            ui.add_space(10.0);
+
             // Analysis method selection
             ui.group(|ui| {
                 ui.heading("Analysis Method");
@@ -484,89 +523,113 @@ impl OligoScreenApp {
 
             ui.add_space(10.0);
 
-            // Oligo length range
-            ui.group(|ui| {
-                ui.heading("Oligo Length Range");
-                ui.horizontal(|ui| {
-                    ui.label("Minimum length:");
-                    ui.add(egui::DragValue::new(&mut self.params.min_oligo_length).range(3..=100));
-                    ui.add_space(20.0);
-                    ui.label("Maximum length:");
-                    ui.add(egui::DragValue::new(&mut self.params.max_oligo_length).range(3..=100));
+            // Oligo length range (disabled in single oligo mode)
+            ui.add_enabled_ui(!is_single_oligo_mode, |ui| {
+                ui.group(|ui| {
+                    ui.heading("Oligo Length Range");
+                    if is_single_oligo_mode {
+                        ui.label("(Uses alignment length in Single Oligo mode)");
+                    } else {
+                        ui.horizontal(|ui| {
+                            ui.label("Minimum length:");
+                            ui.add(egui::DragValue::new(&mut self.params.min_oligo_length).range(3..=100));
+                            ui.add_space(20.0);
+                            ui.label("Maximum length:");
+                            ui.add(egui::DragValue::new(&mut self.params.max_oligo_length).range(3..=100));
+                        });
+
+                        // Ensure min <= max
+                        if self.params.min_oligo_length > self.params.max_oligo_length {
+                            self.params.max_oligo_length = self.params.min_oligo_length;
+                        }
+
+                        let range = self.params.max_oligo_length - self.params.min_oligo_length + 1;
+                        if range > 20 {
+                            ui.colored_label(
+                                egui::Color32::YELLOW,
+                                format!("Warning: Large length range ({}) may take significant time", range),
+                            );
+                        }
+                    }
                 });
-
-                // Ensure min <= max
-                if self.params.min_oligo_length > self.params.max_oligo_length {
-                    self.params.max_oligo_length = self.params.min_oligo_length;
-                }
-
-                let range = self.params.max_oligo_length - self.params.min_oligo_length + 1;
-                if range > 20 {
-                    ui.colored_label(
-                        egui::Color32::YELLOW,
-                        format!("Warning: Large length range ({}) may take significant time", range),
-                    );
-                }
             });
 
             ui.add_space(10.0);
 
-            // Resolution
-            ui.group(|ui| {
-                ui.heading("Analysis Resolution");
-                ui.horizontal(|ui| {
-                    ui.label("Step size (bases):");
-                    ui.add(egui::DragValue::new(&mut self.params.resolution).range(1..=100));
+            // Resolution (disabled in single oligo mode)
+            ui.add_enabled_ui(!is_single_oligo_mode, |ui| {
+                ui.group(|ui| {
+                    ui.heading("Analysis Resolution");
+                    if is_single_oligo_mode {
+                        ui.label("(Not applicable in Single Oligo mode)");
+                    } else {
+                        ui.horizontal(|ui| {
+                            ui.label("Step size (bases):");
+                            ui.add(egui::DragValue::new(&mut self.params.resolution).range(1..=100));
+                        });
+                        ui.label("Lower values = more positions analyzed, higher resolution");
+                    }
                 });
-                ui.label("Lower values = more positions analyzed, higher resolution");
             });
 
             ui.add_space(10.0);
 
-            // Coverage threshold
-            ui.group(|ui| {
-                ui.heading("Coverage Threshold");
-                ui.horizontal(|ui| {
-                    ui.label("Target coverage (%):");
-                    ui.add(egui::DragValue::new(&mut self.params.coverage_threshold).range(1.0..=100.0));
+            // Coverage threshold (disabled in single oligo mode)
+            ui.add_enabled_ui(!is_single_oligo_mode, |ui| {
+                ui.group(|ui| {
+                    ui.heading("Coverage Threshold");
+                    if is_single_oligo_mode {
+                        ui.label("(Shows all variants in Single Oligo mode)");
+                    } else {
+                        ui.horizontal(|ui| {
+                            ui.label("Target coverage (%):");
+                            ui.add(egui::DragValue::new(&mut self.params.coverage_threshold).range(1.0..=100.0));
+                        });
+                        ui.label("Number of variants needed to reach this coverage will be reported");
+                    }
                 });
-                ui.label("Number of variants needed to reach this coverage will be reported");
             });
 
             ui.add_space(10.0);
 
-            // Thread count
-            ui.group(|ui| {
-                ui.heading("Parallelization");
+            // Thread count (only for screen alignment mode)
+            ui.add_enabled_ui(!is_single_oligo_mode, |ui| {
+                ui.group(|ui| {
+                    ui.heading("Parallelization");
 
-                let available_threads = std::thread::available_parallelism()
-                    .map(|n| n.get())
-                    .unwrap_or(1);
+                    if is_single_oligo_mode {
+                        ui.label("(Not applicable in Single Oligo mode)");
+                    } else {
+                        let available_threads = std::thread::available_parallelism()
+                            .map(|n| n.get())
+                            .unwrap_or(1);
 
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.thread_selection,
-                        ThreadSelection::Auto,
-                        format!("Auto ({} threads)", available_threads),
-                    );
+                        ui.horizontal(|ui| {
+                            ui.radio_value(
+                                &mut self.thread_selection,
+                                ThreadSelection::Auto,
+                                format!("Auto ({} threads)", available_threads),
+                            );
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.radio_value(
+                                &mut self.thread_selection,
+                                ThreadSelection::Manual,
+                                "Manual:",
+                            );
+                            let enabled = self.thread_selection == ThreadSelection::Manual;
+                            ui.add_enabled(
+                                enabled,
+                                egui::DragValue::new(&mut self.manual_thread_count)
+                                    .range(1..=available_threads.max(32)),
+                            );
+                            ui.label("threads");
+                        });
+
+                        ui.label("More threads = faster analysis but higher CPU usage");
+                    }
                 });
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.thread_selection,
-                        ThreadSelection::Manual,
-                        "Manual:",
-                    );
-                    let enabled = self.thread_selection == ThreadSelection::Manual;
-                    ui.add_enabled(
-                        enabled,
-                        egui::DragValue::new(&mut self.manual_thread_count)
-                            .range(1..=available_threads.max(32)),
-                    );
-                    ui.label("threads");
-                });
-
-                ui.label("More threads = faster analysis but higher CPU usage");
             });
 
             ui.add_space(20.0);
