@@ -10,7 +10,7 @@ use crate::analysis::{
 };
 
 /// Application state
-pub struct OligoScreenApp {
+pub struct OligoscreenApp {
     // Input tab state
     fasta_input: String,
     alignment_data: Option<AlignmentData>,
@@ -77,7 +77,7 @@ enum ModeSelection {
     SingleOligoRegion,
 }
 
-impl Default for OligoScreenApp {
+impl Default for OligoscreenApp {
     fn default() -> Self {
         let available_threads = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -110,7 +110,7 @@ impl Default for OligoScreenApp {
     }
 }
 
-impl OligoScreenApp {
+impl OligoscreenApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         Self::default()
     }
@@ -283,7 +283,7 @@ impl AnalysisMethod {
     }
 }
 
-impl eframe::App for OligoScreenApp {
+impl eframe::App for OligoscreenApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check for analysis completion
         if self.is_analyzing {
@@ -370,7 +370,7 @@ impl eframe::App for OligoScreenApp {
     }
 }
 
-impl OligoScreenApp {
+impl OligoscreenApp {
     fn show_input_tab(&mut self, ui: &mut egui::Ui) {
         ui.heading("Input Data");
         ui.separator();

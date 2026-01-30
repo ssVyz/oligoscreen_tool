@@ -1,4 +1,4 @@
-# OligoScreen VR
+# Oligoscreen Tool
 
 A Rust GUI application for screening aligned DNA sequences to identify optimal primer sites based on sequence variability.
 

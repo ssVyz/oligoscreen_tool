@@ -1,4 +1,4 @@
-//! OligoScreen VR - Primer Site Screening Tool
+//! Oligoscreen Tool - Primer Site Screening Tool
 //!
 //! A Rust application for screening large sets of aligned DNA sequences
 //! to find suitable primer sites with low variability.
