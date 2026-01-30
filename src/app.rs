@@ -5,8 +5,8 @@ use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 
 use crate::analysis::{
-    parse_fasta, run_screening, AlignmentData, AnalysisMethod, AnalysisMode, AnalysisParams,
-    LengthResult, ProgressUpdate, ScreeningResults, ThreadCount,
+    parse_fasta, reverse_complement, run_screening, AlignmentData, AnalysisMethod, AnalysisMode,
+    AnalysisParams, LengthResult, ProgressUpdate, ScreeningResults, ThreadCount,
 };
 
 /// Application state
@@ -34,6 +34,10 @@ pub struct OligoScreenApp {
     selected_length: Option<u32>,
     selected_position: Option<usize>,
     show_detail_window: bool,
+
+    // Detail window display options
+    detail_show_reverse_complement: bool,
+    detail_show_codon_spacing: bool,
 
     // View state
     current_tab: Tab,
@@ -95,6 +99,8 @@ impl Default for OligoScreenApp {
             selected_length: None,
             selected_position: None,
             show_detail_window: false,
+            detail_show_reverse_complement: false,
+            detail_show_codon_spacing: true,
             current_tab: Tab::Input,
             zoom_level: 1.0,
             save_error: None,
@@ -979,6 +985,10 @@ impl OligoScreenApp {
         let pos_result = pos_result.clone();
         let coverage_threshold = results.params.coverage_threshold;
 
+        // Capture display options for use in closure
+        let show_reverse_complement = self.detail_show_reverse_complement;
+        let show_codon_spacing = self.detail_show_codon_spacing;
+
         egui::Window::new(format!("Position {} Details", position + 1))
             .open(&mut self.show_detail_window)
             .default_width(600.0)
@@ -1021,7 +1031,15 @@ impl OligoScreenApp {
                 ));
 
                 ui.separator();
-                ui.heading("Variants");
+
+                // Display options
+                ui.horizontal(|ui| {
+                    ui.heading("Variants");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.checkbox(&mut self.detail_show_codon_spacing, "Codon spacing");
+                        ui.checkbox(&mut self.detail_show_reverse_complement, "Reverse complement");
+                    });
+                });
 
                 egui::ScrollArea::vertical()
                     .max_height(300.0)
@@ -1054,9 +1072,16 @@ impl OligoScreenApp {
                                         ui.label(format!("{}", i + 1));
                                     }
 
+                                    // Apply display transformations
+                                    let display_seq = format_sequence_for_display(
+                                        &variant.sequence,
+                                        show_reverse_complement,
+                                        show_codon_spacing,
+                                    );
+
                                     ui.add(
                                         egui::Label::new(
-                                            egui::RichText::new(&variant.sequence)
+                                            egui::RichText::new(&display_seq)
                                                 .monospace()
                                                 .size(11.0),
                                         )
@@ -1081,6 +1106,35 @@ impl OligoScreenApp {
                     });
             });
     }
+}
+
+/// Format a sequence for display with optional transformations
+fn format_sequence_for_display(seq: &str, reverse_comp: bool, codon_spacing: bool) -> String {
+    let mut result = if reverse_comp {
+        reverse_complement(seq)
+    } else {
+        seq.to_string()
+    };
+
+    if codon_spacing {
+        result = add_codon_spacing(&result);
+    }
+
+    result
+}
+
+/// Add spaces every 3 characters (codon format)
+fn add_codon_spacing(seq: &str) -> String {
+    seq.chars()
+        .enumerate()
+        .flat_map(|(i, c)| {
+            if i > 0 && i % 3 == 0 {
+                vec![' ', c]
+            } else {
+                vec![c]
+            }
+        })
+        .collect()
 }
 
 /// Get color for variant count (green = good, red = bad)

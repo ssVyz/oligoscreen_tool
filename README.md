@@ -77,6 +77,12 @@ For each position and oligo length:
 - Individual variant sequences with counts and percentages
 - Color-coded visualization (green=1 variant, yellow=2-5, orange=6-10, red=>10, gray=skipped)
 
+### Variant Detail Display Options
+
+The position details window includes display options:
+- **Reverse complement**: Show sequences as reverse complement (handles IUPAC codes)
+- **Codon spacing**: Insert space every 3 bases (e.g., `ATA CCA TTC`) - enabled by default
+
 ## Dependencies
 
 - egui/eframe - GUI framework
