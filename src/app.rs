@@ -833,7 +833,11 @@ impl OligoscreenApp {
         ui.label(format!("Variants needed to reach {:.0}% coverage:", coverage_threshold));
 
         let available_width = ui.available_width();
-        let bar_width = (available_width / positions.len() as f32).max(4.0) * self.zoom_level;
+        // Minimum bar width of 8px, scales with zoom
+        let bar_width = (available_width / positions.len() as f32).max(8.0) * self.zoom_level;
+        // Small gap between bars (10% of width, minimum 0.5px, maximum 2px)
+        let bar_gap = (bar_width * 0.1).clamp(0.5, 2.0);
+        let bar_draw_width = bar_width - bar_gap;
 
         egui::ScrollArea::horizontal()
             .id_salt("results_scroll")
@@ -842,7 +846,7 @@ impl OligoscreenApp {
                 ui.horizontal(|ui| {
                     for pos_result in positions {
                         let response = ui.allocate_response(
-                            egui::vec2(bar_width, 20.0),
+                            egui::vec2(bar_width, 20.0 * self.zoom_level),
                             egui::Sense::hover(),
                         );
 
@@ -861,15 +865,18 @@ impl OligoscreenApp {
 
                 // Bar chart
                 ui.horizontal(|ui| {
-                    let max_height = 100.0 * self.zoom_level;
+                    // Increased base height from 100 to 150
+                    let max_height = 150.0 * self.zoom_level;
                     let max_for_scale = max_variants.max(10) as f32;
+                    // Minimum bar height scales with zoom
+                    let min_bar_height = 4.0 * self.zoom_level;
 
                     for pos_result in positions {
                         let bar_height = if pos_result.analysis.skipped {
-                            2.0
+                            min_bar_height
                         } else {
                             ((pos_result.variants_needed as f32 / max_for_scale) * max_height)
-                                .max(2.0)
+                                .max(min_bar_height)
                         };
 
                         let color = if pos_result.analysis.skipped {
@@ -883,13 +890,13 @@ impl OligoscreenApp {
                             egui::Sense::click(),
                         );
 
-                        // Draw bar from bottom
+                        // Draw bar from bottom, filling most of the allocated space
                         let bar_rect = egui::Rect::from_min_size(
                             egui::pos2(
                                 response.rect.min.x,
                                 response.rect.max.y - bar_height,
                             ),
-                            egui::vec2(bar_width - 1.0, bar_height),
+                            egui::vec2(bar_draw_width, bar_height),
                         );
 
                         ui.painter().rect_filled(bar_rect, 0.0, color);
